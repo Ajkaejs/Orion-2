@@ -97,15 +97,20 @@ task.spawn(function()
 	end
 end)
 
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
 local function AddDraggingFunctionality(DragPoint, Main)
     pcall(function()
         local Dragging = false
-        local DragInput, MousePos, FramePos
+        local DragInput, StartPos, FramePos
+        local TouchStartTime = 0
         
         local function Update(input)
             if not Dragging then return end
             
-            local delta = input.Position - MousePos
+            local delta = input.Position - StartPos
             local newPosition = UDim2.new(
                 FramePos.X.Scale, 
                 FramePos.X.Offset + delta.X,
@@ -113,27 +118,43 @@ local function AddDraggingFunctionality(DragPoint, Main)
                 FramePos.Y.Offset + delta.Y
             )
             
-            TweenService:Create(Main, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-                Position = newPosition
-            }):Play()
+            -- Немедленное обновление позиции для плавного перетаскивания
+            Main.Position = newPosition
         end
         
+        -- Обработка начала перетаскивания
         DragPoint.InputBegan:Connect(function(input)
-            -- Поддержка как мыши, так и тач-инпута
+            -- Проверяем тип ввода (мышь или касание)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or 
                input.UserInputType == Enum.UserInputType.Touch then
+                
+                -- Запоминаем время начала касания (для предотвращения конфликтов с кликами)
+                TouchStartTime = os.clock()
+                
                 Dragging = true
-                MousePos = input.Position
+                StartPos = input.Position
                 FramePos = Main.Position
                 
+                -- Захватываем фокус для предотвращения прокрутки страницы на мобильных
+                if input.UserInputType == Enum.UserInputType.Touch then
+                    input:CaptureFocus()
+                end
+                
+                -- Соединяем изменение состояния ввода
                 input.Changed:Connect(function()
                     if input.UserInputState == Enum.UserInputState.End then
                         Dragging = false
+                        
+                        -- Освобождаем фокус на мобильных
+                        if input.UserInputType == Enum.UserInputType.Touch then
+                            input:ReleaseFocus()
+                        end
                     end
                 end)
             end
         end)
         
+        -- Обработка изменения ввода (движение мыши/пальца)
         DragPoint.InputChanged:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement or 
                input.UserInputType == Enum.UserInputType.Touch then
@@ -141,13 +162,25 @@ local function AddDraggingFunctionality(DragPoint, Main)
             end
         end)
         
-        UserInputService.InputChanged:Connect(function(input)
-            if (input.UserInputType == Enum.UserInputType.MouseMovement or 
-                input.UserInputType == Enum.UserInputType.Touch) and 
-                input == DragInput and Dragging then
-                Update(input)
+        -- Обработка движения на мобильных устройствах
+        local connection
+        connection = RunService.RenderStepped:Connect(function()
+            if Dragging and DragInput then
+                Update(DragInput)
             end
         end)
+        
+        -- Очистка при уничтожении объекта
+        DragPoint.AncestryChanged:Connect(function()
+            if not DragPoint:IsDescendantOf(game) then
+                connection:Disconnect()
+            end
+        end)
+        
+        -- Предотвращение стандартного поведения на мобильных
+        if DragPoint:IsA("ImageButton") or DragPoint:IsA("TextButton") then
+            DragPoint.AutoButtonColor = false
+        end
     end)
 end
 
